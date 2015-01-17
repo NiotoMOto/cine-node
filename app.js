@@ -7,7 +7,8 @@ var cors = require('cors');
 var _ = require('lodash');
 var compress = require('compression');
 var http = require('http');
-var request = require('request');
+var request = require('request-promise');
+var Q = require('q');
 var app = express(); // define our app using express
 var bodyParser = require('body-parser');
 var Sequelize = require('sequelize'),
@@ -152,7 +153,7 @@ router.get('/movies', function(req, res) {
 router.get('/movies/rank', function(req, res) {
     var limit = req.query.limit || 10;
     var order = req.query.order || '';
-    var requete = "select AVG(vm.note) moyenne, m.id, m.title from Movies as m right join ViewMovies as vm  on m.id = vm.MovieId group by m.id having count(vm.note) > 2  ORDER BY moyenne " + order + ' limit ' + limit  ;
+    var requete = "select AVG(vm.note) moyenne, m.id, m.title, COUNT(vm.id) as totalVotes from Movies as m right join ViewMovies as vm  on m.id = vm.MovieId WHERE vm.note IS NOT NULL group by m.id having count(vm.note) > 2  ORDER BY moyenne " + order + ' limit ' + limit;
     sequelize.query(requete, null, {
         raw: 'true'
     }).success(function(Movies) {
@@ -247,7 +248,7 @@ router.get('/movie/:id/note', function(req, res) {
         }
     }).then(function(viewMovies) {
         _.forEach(viewMovies, function(viewMovie) {
-            if (viewMovie.note) {
+            if (_.isNumber(viewMovie.note)) {
                 note += viewMovie.note;
                 nbNote++;
             }
@@ -262,6 +263,38 @@ router.get('/movie/:id/note', function(req, res) {
         res.json(response);
     });
 });
+
+
+router.post('/movies/search', function(req, res) {
+    var requete = req.body;
+    var callbackCounter = 0;
+    var response = {};
+    var promises = [];
+    var movies = [];
+    Movie.findAll({
+        where: requete.filter,
+        limit: requete.limit || 10,
+        offset: requete.offset || 0
+    }).then(function(data) {
+        movies = data;
+        _.forEach(movies, function(movie, key) {
+            var k = key;
+            promises.push(request('https://api.themoviedb.org/3/movie/' + movie.imdbId + '?api_key=6c004d34d854c2effb7f697045aea2bd&language=fr').then(function(body, err) {
+              console.log(movies[k].dataValues);
+                movies[k].dataValues.imdbMovie = JSON.parse(body);
+            }));
+        });
+        console.log(promises.length);
+
+        Q.all(promises).done(function() {
+            console.log('finish');
+            response.elements = movies;
+            res.json(response);
+        })
+    });
+});
+
+
 router.post('/movie', function(req, res) {
     var movie = req.body.movie;
     movie = Movie.build(movie);
@@ -351,7 +384,7 @@ router.get('/user/:id/note', function(req, res) {
     var moyenne = 0;
     var notesEach = [];
     var commSize = 0;
-    for (var i = 0; i < 10; i++) {
+    for (var i = 0; i < 11; i++) {
         notesEach[i] = 0;
     }
     ViewMovie.findAll({
@@ -360,8 +393,8 @@ router.get('/user/:id/note', function(req, res) {
         }
     }).then(function(viewMovies) {
         _.forEach(viewMovies, function(viewMovie) {
-            if (viewMovie.note) {
-                notesEach[viewMovie.note - 1] ++;
+            if (_.isNumber(viewMovie.note)) {
+                notesEach[viewMovie.note] ++;
                 note += viewMovie.note;
                 nbNote++;
                 if (viewMovie.commentaire) {
@@ -369,7 +402,7 @@ router.get('/user/:id/note', function(req, res) {
                 }
             }
         });
-        if (note) {
+        if (_.isNumber(note)) {
             moyenne = note / nbNote;
         }
         var response = {};
@@ -420,9 +453,9 @@ router.get('/viewMovies', function(req, res, next) {
     var user = req.query.user;
     var order = req.query.order;
     var group = req.query.group;
-    console.log('query limitr',req.query.limit);
+    console.log('query limitr', req.query.limit);
     var limit = req.query.limit || null;
-    console.log('LIMIT : ',limit);
+    console.log('LIMIT : ', limit);
     if (filter) {
         var cond = {};
         if (movie) {
@@ -432,19 +465,19 @@ router.get('/viewMovies', function(req, res, next) {
             cond.UserId = user;
         }
         ViewMovie.findAll({
-            limit : limit,
+            limit: limit,
             group: group,
             where: cond,
-            order : order,
+            order: order,
             include: [User, Movie]
         }).then(function(viewMovie) {
             res.json(viewMovie);
         });
     } else {
         ViewMovie.findAll({
-            limit : limit,
+            limit: limit,
             group: group,
-            order : order,
+            order: order,
             include: [User, Movie]
         }).then(function(viewMovie) {
             res.json(viewMovie);

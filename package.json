@@ -6,9 +6,12 @@
     "compression": "^1.2.0",
     "cors": "^2.5.0",
     "express": "~4.0.0",
+    "lodash": "^2.4.1",
     "mongoose": "~3.6.13",
     "mysql": "^2.5.2",
+    "q": "^1.1.2",
     "request": "^2.48.0",
+    "request-promise": "^0.3.2",
     "sequelize": "^2.0.0-rc2"
   },
   "devDependencies": {
